@@ -3,19 +3,20 @@ import sqlite3
 import requests
 from telebot import types
 
-# 1. Konfiguratsiya
+# Konfiguratsiya
 TOKEN = "8883021472:AAGzOX6NPf2m9iDtS0FimxFM4qoBktmZ_WU"
 TONAPI_KEY = "AFN6ZL3Q4AWP55QAAAALXJWSCU7COMV44Y2WY4W2LAOUC4T3DVECLNSV2ORGQPAFSXSSQ7I"
+ADMIN_ID = 7801965871
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 
-# 2. Baza sozlamalari
+# Baza sozlamalari
 conn = sqlite3.connect('users.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, lang TEXT)')
 conn.commit()
 
-# 3. Yordamchi Funksiyalar
+# Yordamchi Funksiyalar
 def get_language_markup():
     markup = types.InlineKeyboardMarkup()
     markup.add(
@@ -25,7 +26,7 @@ def get_language_markup():
     )
     return markup
 
-# 4. Asosiy Handlerlar
+# Asosiy Handlerlar
 @bot.message_handler(commands=['start'])
 def start(message):
     cursor.execute('INSERT OR IGNORE INTO users (id) VALUES (?)', (message.chat.id,))
@@ -43,27 +44,29 @@ def callback_lang(call):
 @bot.message_handler(func=lambda message: not message.text.startswith("/"))
 def search_by_name(message):
     query = message.text.strip()
+    bot.send_message(message.chat.id, "🔍 Qidirilmoqda...")
+    
     url = f"https://tonapi.io/v2/search/accounts?name={query}"
     headers = {'Authorization': f'Bearer {TONAPI_KEY}'}
     
     try:
-        response = requests.get(url, headers=headers).json()
-        if response.get('accounts'):
-            acc = response['accounts'][0]
+        response = requests.get(url, headers=headers)
+        data = response.json()
+        
+        if 'accounts' in data and len(data['accounts']) > 0:
+            acc = data['accounts'][0]
             name = acc.get('name', 'Noma\'lum')
-            address = acc.get('address')
+            address = acc.get('address', '')
             
-            # Tugmalar menyusi
             markup = types.InlineKeyboardMarkup()
-            btn_info = types.InlineKeyboardButton("📋 To'liq ma'lumot", callback_data=f"price_{address}")
-            btn_site = types.InlineKeyboardButton("💎 Getgems'da ko'rish", url=f"https://getgems.io/collection/{address}")
-            markup.add(btn_info, btn_site)
+            markup.add(types.InlineKeyboardButton("📋 To'liq ma'lumot", callback_data=f"price_{address}"))
+            markup.add(types.InlineKeyboardButton("💎 Getgems'da ko'rish", url=f"https://getgems.io/collection/{address}"))
             
-            bot.send_message(message.chat.id, f"✅ <b>Topildi:</b> {name}", reply_markup=markup)
+            bot.send_message(message.chat.id, f"✅ <b>Topildi:</b> {name}\n🔗 <b>Manzil:</b> <code>{address}</code>", reply_markup=markup)
         else:
             bot.send_message(message.chat.id, "❌ Kolleksiya topilmadi. Boshqa nom bilan urinib ko'ring.")
-    except Exception:
-        bot.send_message(message.chat.id, "❌ Xatolik yuz berdi. Iltimos, keyinroq urinib ko'ring.")
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Xatolik yuz berdi: {str(e)}")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("price_"))
 def callback_price(call):
@@ -74,16 +77,17 @@ def callback_price(call):
     headers = {'Authorization': f'Bearer {TONAPI_KEY}'}
     
     try:
-        response = requests.get(url, headers=headers).json()
-        name = response.get('metadata', {}).get('name', 'Noma\'lum')
-        items = response.get('next_item_index', 'Aniqlanmagan')
+        response = requests.get(url, headers=headers)
+        data = response.json()
         
-        info = (f"🖼 <b>Kolleksiya:</b> {name}\n"
-                f"🔢 <b>NFTlar soni:</b> {items}\n"
-                f"🔗 <b>Manzil:</b> <code>{address}</code>")
-        
-        bot.send_message(call.message.chat.id, info)
-    except Exception:
-        bot.send_message(call.message.chat.id, "❌ Ma'lumotlarni yuklab bo'lmadi.")
+        if 'metadata' in data:
+            name = data['metadata'].get('name', 'Noma\'lum')
+            items = data.get('next_item_index', 'Aniqlanmagan')
+            info = f"🖼 <b>Kolleksiya:</b> {name}\n🔢 <b>NFTlar soni:</b> {items}\n🔗 <b>Manzil:</b> <code>{address}</code>"
+            bot.send_message(call.message.chat.id, info)
+        else:
+            bot.send_message(call.message.chat.id, "❌ Bu manzil bo'yicha kolleksiya ma'lumotlari topilmadi.")
+    except Exception as e:
+        bot.send_message(call.message.chat.id, f"❌ Ma'lumotlarni yuklab bo'lmadi: {str(e)}")
 
 bot.infinity_polling()
